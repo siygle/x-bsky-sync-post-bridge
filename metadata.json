@@ -1,0 +1,6 @@
+{
+  "name": "X & Bluesky Cross-Publisher Dashboard",
+  "description": "A comprehensive workspace to compose, preview, optimize with AI, and download a fully-functional Developer-mode Chrome Extension to cross-post seamlessly between X (Twitter) and Bluesky.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
