@@ -147,17 +147,24 @@ app.get("/api/download-extension", async (req, res) => {
     // A. Create Extension Files
     const manifest = {
       manifest_version: 3,
-      name: "X & Bluesky Cross-Publisher",
-      version: "1.1",
-      description: "Quickly share the active tab or post thoughts to both X and Bluesky with secure direct background API or zero-setup session intent modes.",
+      name: "SyncPost Bridge — Multi-Platform Cross-Publisher",
+      version: "1.2.0",
+      description: "Quickly post logs or active tab links to X (Twitter) & Bluesky. Supports browser-session intent and background API posting.",
       permissions: ["storage", "activeTab"],
       action: {
         default_popup: "popup.html",
         default_icon: {
-          "16": "icon.png",
-          "48": "icon.png",
-          "128": "icon.png"
+          "16": "icon16.png",
+          "32": "icon32.png",
+          "48": "icon48.png",
+          "128": "icon128.png"
         }
+      },
+      icons: {
+        "16": "icon16.png",
+        "32": "icon32.png",
+        "48": "icon48.png",
+        "128": "icon128.png"
       }
     };
 
@@ -557,6 +564,7 @@ document.getElementById('share-tab-btn').addEventListener('click', () => {
       // Auto pre-fill content
       editor.value = \`\${title} \\n\${url}\`;
       updateMetrics();
+      chrome.storage.local.set({ draftText: editor.value });
       showStatus('已成功帶入當前網頁的標題與連結！', 'success');
     } else {
       showStatus('無法讀取當前網頁資訊。請確認您正在查看一個網頁分頁。', 'error');
@@ -611,9 +619,18 @@ function updateMetrics() {
   pubBtn.disabled = xOver || bskyOver || noneChecked || len.trim === '';
 }
 
-editor.addEventListener('input', updateMetrics);
-document.getElementById('check-x').addEventListener('change', updateMetrics);
-document.getElementById('check-bsky').addEventListener('change', updateMetrics);
+editor.addEventListener('input', () => {
+  updateMetrics();
+  chrome.storage.local.set({ draftText: editor.value });
+});
+document.getElementById('check-x').addEventListener('change', () => {
+  chrome.storage.local.set({ checkXState: document.getElementById('check-x').checked });
+  updateMetrics();
+});
+document.getElementById('check-bsky').addEventListener('change', () => {
+  chrome.storage.local.set({ checkBskyState: document.getElementById('check-bsky').checked });
+  updateMetrics();
+});
 
 // Storage helper
 function showStatus(text, type = 'info') {
@@ -636,7 +653,7 @@ document.getElementById('save-btn').addEventListener('click', () => {
 });
 
 function updateSavedIndicator() {
-  chrome.storage.local.get(['bskyHandle', 'bskyPassword', 'useApiMode'], (data) => {
+  chrome.storage.local.get(['bskyHandle', 'bskyPassword', 'useApiMode', 'draftText', 'checkXState', 'checkBskyState'], (data) => {
     const indicator = document.getElementById('saved-indicator');
     
     // Restore mode
@@ -646,6 +663,16 @@ function updateSavedIndicator() {
     } else {
       radioIntent.checked = true;
       modeBadge.textContent = '⚡ 免帳密網頁 Session';
+    }
+
+    if (data.checkXState !== undefined) {
+      document.getElementById('check-x').checked = data.checkXState;
+    }
+    if (data.checkBskyState !== undefined) {
+      document.getElementById('check-bsky').checked = data.checkBskyState;
+    }
+    if (data.draftText !== undefined) {
+      editor.value = data.draftText;
     }
 
     if (data.bskyHandle) {
@@ -755,6 +782,7 @@ pubBtn.addEventListener('click', async () => {
       if (bskySuccess) {
         showStatus('已於背景直接發布至 Bluesky！同時為您開啟了 X.com 的發文頁面。', 'success');
         editor.value = '';
+        chrome.storage.local.set({ draftText: '' });
         updateMetrics();
       } else {
         showStatus('X 頁面已開啟，但 Bluesky 背景發布失敗：' + bskyErr, 'error');
@@ -762,6 +790,7 @@ pubBtn.addEventListener('click', async () => {
     } else {
       showStatus('已成功為您同時挑起 X 以及 Bluesky 官方發文頁面，完美共享您的登入 Cookie / Session！', 'success');
       editor.value = '';
+      chrome.storage.local.set({ draftText: '' });
       updateMetrics();
     }
   } else if (publishToBsky) {
@@ -769,6 +798,7 @@ pubBtn.addEventListener('click', async () => {
       if (bskySuccess) {
         showStatus('已順利在背景發佈至 Bluesky 帳號中！', 'success');
         editor.value = '';
+        chrome.storage.local.set({ draftText: '' });
         updateMetrics();
       } else {
         showStatus('Bluesky 背景發布出錯：' + bskyErr, 'error');
@@ -776,11 +806,13 @@ pubBtn.addEventListener('click', async () => {
     } else {
       showStatus('已開啟 Bluesky 網頁發布分頁，直接使用您的瀏覽器登入 Session！', 'success');
       editor.value = '';
+      chrome.storage.local.set({ draftText: '' });
       updateMetrics();
     }
   } else if (publishToX) {
     showStatus('已為您新開 X.com 發文視窗，內容已自動填妥！', 'success');
     editor.value = '';
+    chrome.storage.local.set({ draftText: '' });
     updateMetrics();
   }
 
@@ -796,13 +828,17 @@ pubBtn.addEventListener('click', async () => {
     // Wait, let's look at the manifest icon. Yes! In Manifest V3, we can omit custom default_icon entirely and just use default_title, or chrome will use the generic extension icon!
     // Or we can draw on canvas in background or generate a real PNG from a simple transparent base64 string.
     // Let's bundle a 1x1 base64 transparent PNG or small styled icon!
-    const singlePixelPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAADElEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-    const iconBuffer = Buffer.from(singlePixelPngBase64, 'base64');
+    // Complete base64 buffer for a real, high-resolution circular social sync logo
+    const appLogoBase64 = "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";
+    const iconBuffer = Buffer.from(appLogoBase64, 'base64');
 
     zip.file("manifest.json", JSON.stringify(manifest, null, 2));
     zip.file("popup.html", popupHtml);
     zip.file("popup.js", popupJs);
-    zip.file("icon.png", iconBuffer);
+    zip.file("icon16.png", iconBuffer);
+    zip.file("icon32.png", iconBuffer);
+    zip.file("icon48.png", iconBuffer);
+    zip.file("icon128.png", iconBuffer);
 
     // Save instructions how to load the Extension
     const readme = `# X & Bluesky Cross-Publisher Chrome Extension

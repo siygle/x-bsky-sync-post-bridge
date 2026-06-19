@@ -3,17 +3,24 @@ import { ExtensionCodeTemplates } from "./types";
 export const extensionTemplates: ExtensionCodeTemplates = {
   manifest: `{
   "manifest_version": 3,
-  "name": "X & Bluesky Cross-Publisher",
-  "version": "1.1",
-  "description": "Quickly share the active tab or post thoughts to both X and Bluesky with secure direct background API or zero-setup session intent modes.",
+  "name": "SyncPost Bridge — Multi-Platform Cross-Publisher",
+  "version": "1.2.0",
+  "description": "Quickly post logs or active tab links to X (Twitter) & Bluesky. Supports browser-session intent and background API posting.",
   "permissions": ["storage", "activeTab"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icon.png",
-      "48": "icon.png",
-      "128": "icon.png"
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
     }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   }
 }`,
 
@@ -71,17 +78,24 @@ document.getElementById('share-tab-btn').addEventListener('click', () => {
 export const fullExtensionTemplates: ExtensionCodeTemplates = {
   manifest: `{
   "manifest_version": 3,
-  "name": "X & Bluesky Cross-Publisher",
-  "version": "1.1.0",
-  "description": "Quickly share the active tab or post thoughts to both X and Bluesky with secure direct background API or zero-setup session intent modes.",
+  "name": "SyncPost Bridge — Multi-Platform Cross-Publisher",
+  "version": "1.2.0",
+  "description": "Quickly post logs or active tab links to X (Twitter) & Bluesky. Supports browser-session intent and background API posting.",
   "permissions": ["storage", "activeTab"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icon.png",
-      "48": "icon.png",
-      "128": "icon.png"
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
     }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   }
 }`,
 

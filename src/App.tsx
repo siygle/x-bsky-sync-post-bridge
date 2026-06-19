@@ -10,10 +10,35 @@ import { fullExtensionTemplates } from "./extensionTemplates";
 
 export default function App() {
   // Post states
-  const [text, setText] = useState<string>("");
-  const [publishToX, setPublishToX] = useState<boolean>(true);
-  const [publishToBsky, setPublishToBsky] = useState<boolean>(true);
-  const [publishMode, setPublishMode] = useState<"intent" | "api">("intent");
+  const [text, setText] = useState<string>(() => localStorage.getItem("post_draft_text") || "");
+  const [publishToX, setPublishToX] = useState<boolean>(() => {
+    const saved = localStorage.getItem("pub_to_x");
+    return saved !== null ? saved === "true" : true;
+  });
+  const [publishToBsky, setPublishToBsky] = useState<boolean>(() => {
+    const saved = localStorage.getItem("pub_to_bsky");
+    return saved !== null ? saved === "true" : true;
+  });
+  const [publishMode, setPublishMode] = useState<"intent" | "api">(() => {
+    return (localStorage.getItem("pub_mode") as "intent" | "api") || "intent";
+  });
+
+  // Automatically save drafts and preferences on change
+  useEffect(() => {
+    localStorage.setItem("post_draft_text", text);
+  }, [text]);
+
+  useEffect(() => {
+    localStorage.setItem("pub_to_x", String(publishToX));
+  }, [publishToX]);
+
+  useEffect(() => {
+    localStorage.setItem("pub_to_bsky", String(publishToBsky));
+  }, [publishToBsky]);
+
+  useEffect(() => {
+    localStorage.setItem("pub_mode", publishMode);
+  }, [publishMode]);
 
   // AI states
   const [isOptimizing, setIsOptimizing] = useState<boolean>(false);

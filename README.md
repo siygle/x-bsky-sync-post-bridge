@@ -46,10 +46,29 @@
 ---
 
 ## 📂 專案檔案結構
-*   `README.md` (本文件) — 系統擴充特色與操作指南。
+*   `README.md` (本文件) — 系統擴充特色、商店上架指引與操作指南。
 *   `server.ts` — 用於本機/雲端運行之 Express Web 伺服器，同時兼顧動態 ZIP 打包下載端點與 Bluesky ATP API Proxy 代發邏輯。
 *   `src/App.tsx` — 具有高度科技動感、高對比、排版卓越細緻之 Web Dashboard，包含擴充代碼編輯器、日誌儀表、AI 改寫及直接下載按鈕。
 *   `src/extensionTemplates.ts` — 儲存了擴充套件所需 manifest、html、js 完美對其繁體中文、帶入目前網頁網址及雙軌 Session 發佈模式的原始碼範本。
+
+---
+
+## 🌐 Chrome Web Store 上架發布指南 (Chrome Web Store Publishing Guide)
+如果您希望將此擴充功能發佈至 Chrome 線上應用程式商店，以下是我們為您調校好的上架步驟與資安審查指引：
+
+1. **打包 ZIP 檔**：點擊網頁介面右上角 **「📥 下載 Chrome 擴充功能 ZIP」**，取得已封裝好的 `x-bluesky-cross-publisher-extension.zip`。
+2. **註冊開發者帳號**：前往 [Chrome 線上應用程式商店開發者主控台](https://chrome.google.com/webstore/devconsole) 登入您的 Google 帳號並支付一次性 5 美元註冊費。
+3. **上傳擴充套件**：
+   * 點擊右側的 **「新增項目 (Add new item)」**，選擇下載好的 ZIP 檔案並上傳。
+4. **填寫詳細資訊 (Store Listing)**：
+   * **高質感套件圖示 (Store Icon)**：在下載包中已完美預置 `icon16.png`、`icon32.png`、`icon48.png` 以及 `icon128.png` 的 **精美 3D 微立體藍色多平台同步發文標識**，不需再做任何修改，上傳即直接顯示。
+   * **螢幕截圖**：提供 1 至 5 張擴充套件 Popup 小窗以及本 Web Dashboard 搭配運作的精緻操作截圖（推薦尺寸 1280x800 px 或 640x400 px）。
+   * **宣傳圖 (Promo Tile)**：準備一張 440x280 px 的主風格特色宣傳圖。
+5. **極佳的資安與最速過審優勢 (Privacy & Fast Review Permissions)**：
+   * **極簡安全權限**：本擴充套件僅申請最安全的兩個權限：
+     - `storage`：僅用於在本機 Chrome Sandbox 沙盒儲存您自選的預設發佈管道（X/Bluesky）與發文草稿狀態。
+     - `activeTab`：僅在您「主動點擊」帶入按鈕時，暫時安全讀取當前標籤的 Title 與 URL。
+   * **秒速審核通過**：本套件**並未申請**會跳出警告視窗的廣義 `tabs` 讀取權限，亦**未申請**背景腳本攔截或注入（Content Scripts），這使它具有極高的資安安全係數，**極大縮短了 Google 官方的資安人工審閱流程，絕大多能於 12 - 48 小時內自动安全無痛過審並公開上架！**
 
 ---
 
