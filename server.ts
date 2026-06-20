@@ -144,13 +144,37 @@ app.get("/api/download-extension", async (req, res) => {
   try {
     const zip = new JSZip();
 
+    // Context menu background script template
+    const backgroundJs = `// SyncPost Bridge — Background Script for Right-Click Selection
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "share-by-cross-publisher",
+    title: "Share by Cross-Publisher",
+    contexts: ["selection"]
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "share-by-cross-publisher" && info.selectionText) {
+    chrome.storage.local.set({ draftText: info.selectionText }, () => {
+      if (chrome.action && typeof chrome.action.openPopup === 'function') {
+        chrome.action.openPopup().catch(() => {});
+      }
+    });
+  }
+});
+`;
+
     // A. Create Extension Files
     const manifest = {
       manifest_version: 3,
       name: "SyncPost Bridge — Multi-Platform Cross-Publisher",
-      version: "1.2.0",
-      description: "Quickly post logs or active tab links to X (Twitter) & Bluesky. Supports browser-session intent and background API posting.",
-      permissions: ["storage", "activeTab"],
+      version: "1.3.0",
+      description: "Quickly post logs or active tab links to X (Twitter) & Bluesky. Supports browser-session intent, background API posting, and right-click text selection sharing.",
+      permissions: ["storage", "activeTab", "contextMenus"],
+      background: {
+        service_worker: "background.js"
+      },
       action: {
         default_popup: "popup.html",
         default_icon: {
@@ -835,6 +859,7 @@ pubBtn.addEventListener('click', async () => {
     zip.file("manifest.json", JSON.stringify(manifest, null, 2));
     zip.file("popup.html", popupHtml);
     zip.file("popup.js", popupJs);
+    zip.file("background.js", backgroundJs);
     zip.file("icon16.png", iconBuffer);
     zip.file("icon32.png", iconBuffer);
     zip.file("icon48.png", iconBuffer);

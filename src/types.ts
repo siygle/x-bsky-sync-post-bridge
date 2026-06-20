@@ -18,11 +18,12 @@ export interface LogEntry {
   link?: string;
 }
 
-export type ExtensionFile = "manifest.json" | "popup.html" | "popup.js" | "README.md";
+export type ExtensionFile = "manifest.json" | "popup.html" | "popup.js" | "background.js" | "README.md";
 
 export interface ExtensionCodeTemplates {
   manifest: string;
   html: string;
   js: string;
+  background: string;
   readme: string;
 }

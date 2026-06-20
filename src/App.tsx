@@ -252,6 +252,7 @@ export default function App() {
     if (activeFile === "manifest.json") contentToWrite = fullExtensionTemplates.manifest;
     else if (activeFile === "popup.html") contentToWrite = fullExtensionTemplates.html;
     else if (activeFile === "popup.js") contentToWrite = fullExtensionTemplates.js;
+    else if (activeFile === "background.js") contentToWrite = fullExtensionTemplates.background;
     else if (activeFile === "README.md") contentToWrite = fullExtensionTemplates.readme;
 
     navigator.clipboard.writeText(contentToWrite);
@@ -872,7 +873,7 @@ export default function App() {
 
               {/* Navigation File List */}
               <div className="flex space-x-1 border-b border-slate-100 pb-1.5 overflow-x-auto">
-                {(["manifest.json", "popup.html", "popup.js", "README.md"] as ExtensionFile[]).map((f) => (
+                {(["manifest.json", "popup.html", "popup.js", "background.js", "README.md"] as ExtensionFile[]).map((f) => (
                   <button
                     key={f}
                     onClick={() => {
@@ -903,6 +904,7 @@ export default function App() {
                   {activeFile === "manifest.json" && fullExtensionTemplates.manifest}
                   {activeFile === "popup.html" && fullExtensionTemplates.html}
                   {activeFile === "popup.js" && fullExtensionTemplates.js}
+                  {activeFile === "background.js" && fullExtensionTemplates.background}
                   {activeFile === "README.md" && fullExtensionTemplates.readme}
                 </pre>
               </div>

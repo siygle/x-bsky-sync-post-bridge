@@ -6,7 +6,10 @@ export const extensionTemplates: ExtensionCodeTemplates = {
   "name": "SyncPost Bridge — Multi-Platform Cross-Publisher",
   "version": "1.2.0",
   "description": "Quickly post logs or active tab links to X (Twitter) & Bluesky. Supports browser-session intent and background API posting.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "contextMenus"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -64,6 +67,25 @@ document.getElementById('share-tab-btn').addEventListener('click', () => {
 // Supports Dual Sending Modes (Browser interactive session or API Background background posting)
 `,
 
+  background: `// Background Context Menu selection handler
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "share-by-cross-publisher",
+    title: "Share by Cross-Publisher",
+    contexts: ["selection"]
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "share-by-cross-publisher" && info.selectionText) {
+    chrome.storage.local.set({ draftText: info.selectionText }, () => {
+      if (chrome.action && typeof chrome.action.openPopup === 'function') {
+        chrome.action.openPopup().catch(() => {});
+      }
+    });
+  }
+});`,
+
   readme: `# X & Bluesky Cross-Publisher Chrome Extension
 
 ## How to install this extension in Google Chrome:
@@ -71,17 +93,21 @@ document.getElementById('share-tab-btn').addEventListener('click', () => {
 2. Open Google Chrome and head to \`chrome://extensions\`
 3. Enable "Developer mode" (Top Right).
 4. Click "Load unpacked" (Top Left).
-5. Select the folder containing manifest.json, popup.html, popup.js.
+5. Select the folder containing manifest.json, popup.html, popup.js, background.js.
 6. Open any browser tab, click the extension icon, click "🔗 帶入目前瀏覽網頁的標題與連結" and post!
 `
 };
+
 export const fullExtensionTemplates: ExtensionCodeTemplates = {
   manifest: `{
   "manifest_version": 3,
   "name": "SyncPost Bridge — Multi-Platform Cross-Publisher",
   "version": "1.2.0",
   "description": "Quickly post logs or active tab links to X (Twitter) & Bluesky. Supports browser-session intent and background API posting.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "contextMenus"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -128,6 +154,25 @@ document.getElementById('share-tab-btn').addEventListener('click', () => {
 
 // Dual Posting implementation for X Intent and Bluesky ATP RPC or Intent Client Session
 `,
+
+  background: `// Background Context Menu selection handler
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "share-by-cross-publisher",
+    title: "Share by Cross-Publisher",
+    contexts: ["selection"]
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "share-by-cross-publisher" && info.selectionText) {
+    chrome.storage.local.set({ draftText: info.selectionText }, () => {
+      if (chrome.action && typeof chrome.action.openPopup === 'function') {
+        chrome.action.openPopup().catch(() => {});
+      }
+    });
+  }
+});`,
 
   readme: `# X & Bluesky Cross-Publisher Chrome Extension
 
