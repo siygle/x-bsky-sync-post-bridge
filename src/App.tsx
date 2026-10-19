@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { 
   Send, Sparkles, Download, Twitter, Cloud, Check, Loader2, Info, 
   Settings, Code, FileText, ExternalLink, AlertCircle, Trash2, 
-  Eye, EyeOff, Lock, Play, Copy, RefreshCw 
+  Eye, EyeOff, Lock, Play, Copy, RefreshCw, AtSign 
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { BlueskyCredentials, PostDraft, LogEntry, ExtensionFile } from "./types";
+import { BlueskyCredentials, ThreadsCredentials, PostDraft, LogEntry, ExtensionFile } from "./types";
 import { fullExtensionTemplates } from "./extensionTemplates";
 
 export default function App() {
@@ -19,6 +19,8 @@ export default function App() {
     const saved = localStorage.getItem("pub_to_bsky");
     return saved !== null ? saved === "true" : true;
   });
+  // Threads is opt-in so existing users keep their current publishing targets
+  const [publishToThreads, setPublishToThreads] = useState<boolean>(() => localStorage.getItem("pub_to_threads") === "true");
   const [publishMode, setPublishMode] = useState<"intent" | "api">(() => {
     return (localStorage.getItem("pub_mode") as "intent" | "api") || "intent";
   });
@@ -35,6 +37,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("pub_to_bsky", String(publishToBsky));
   }, [publishToBsky]);
+
+  useEffect(() => {
+    localStorage.setItem("pub_to_threads", String(publishToThreads));
+  }, [publishToThreads]);
 
   useEffect(() => {
     localStorage.setItem("pub_mode", publishMode);
@@ -58,6 +64,18 @@ export default function App() {
     return { handle: "", appPassword: "" };
   });
   const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [threadsCreds, setThreadsCreds] = useState<ThreadsCredentials>(() => {
+    const saved = localStorage.getItem("threads_creds");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return { accessToken: "", tokenRefreshedAt: 0 };
+  });
+  const [showThreadsToken, setShowThreadsToken] = useState<boolean>(false);
 
   // Action status/logs
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
@@ -76,14 +94,14 @@ export default function App() {
   const [copiedFile, setCopiedFile] = useState<boolean>(false);
 
   // Save credentials to localStorage
-  const saveCredentials = (creds: BlueskyCredentials) => {
-    localStorage.setItem("bsky_creds", JSON.stringify(creds));
-    setBskyCreds(creds);
-    addLog("System", "success", "Bluesky credentials updated and saved locally in secure storage.");
+  const saveCredentials = () => {
+    localStorage.setItem("bsky_creds", JSON.stringify(bskyCreds));
+    localStorage.setItem("threads_creds", JSON.stringify(threadsCreds));
+    addLog("System", "success", "Bluesky & Threads credentials updated and saved locally in secure storage.");
   };
 
   // Helper log function
-  const addLog = (network: "X" | "Bluesky" | "AI" | "System", type: "success" | "error" | "info", message: string, link?: string) => {
+  const addLog = (network: LogEntry["network"], type: "success" | "error" | "info", message: string, link?: string) => {
     setLogs((prev) => [
       {
         id: Math.random().toString(36).substr(2, 9),
@@ -100,6 +118,7 @@ export default function App() {
   // Character counting rules
   // X: URLs always count as exactly 23 characters (t.co format)
   // Bluesky: URLs count as their literal length in standard char length.
+  // Threads: emoji count as their UTF-8 byte length, everything else as one character.
   const calculateXLength = (str: string): number => {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const urls = str.match(urlRegex) || [];
@@ -107,11 +126,20 @@ export default function App() {
     return baseLength + (urls.length * 23);
   };
 
+  const calculateThreadsLength = (str: string): number => {
+    const encoder = new TextEncoder();
+    return [...str].reduce((sum, ch) => sum + (/\p{Extended_Pictographic}/u.test(ch) ? encoder.encode(ch).length : 1), 0);
+  };
+
   const xLength = calculateXLength(text);
   const bskyLength = text.length;
+  const threadsLength = calculateThreadsLength(text);
 
   const X_LIMIT = 280;
   const BSKY_LIMIT = 300;
+  const THREADS_LIMIT = 500;
+  // Long-lived Threads tokens last 60 days; renew them weekly while the user keeps posting
+  const THREADS_TOKEN_RENEW_MS = 7 * 24 * 60 * 60 * 1000;
 
   // Append short clips or elements for quick crafting
   const appendText = (addition: string) => {
@@ -229,7 +257,49 @@ export default function App() {
       }
     }
 
-    // 2. Publishing to X (Twitter) Web Fallback Composer
+    // 2. Publishing to Threads
+    if (publishToThreads) {
+      if (publishMode === "api") {
+        if (!threadsCreds.accessToken) {
+          addLog("Threads", "error", "Missing Threads access token. Configure it on the credentials panel!");
+        } else {
+          addLog("Threads", "info", `Connecting to Threads API and sending content of ${threadsLength} characters...`);
+          try {
+            const threadsRes = await fetch("/api/publish/threads", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                accessToken: threadsCreds.accessToken,
+                content: text,
+                renewToken: Date.now() - threadsCreds.tokenRefreshedAt > THREADS_TOKEN_RENEW_MS
+              })
+            });
+
+            const threadsResult = await threadsRes.json();
+            if (threadsRes.ok && threadsResult.success) {
+              addLog("Threads", "success", "Post successfully published directly to Threads API!", threadsResult.url);
+              if (threadsResult.newAccessToken) {
+                const renewed = { accessToken: threadsResult.newAccessToken, tokenRefreshedAt: Date.now() };
+                setThreadsCreds(renewed);
+                localStorage.setItem("threads_creds", JSON.stringify(renewed));
+                addLog("Threads", "info", "Threads access token renewed for another 60 days.");
+              }
+            } else {
+              throw new Error(threadsResult.error || "Threads network rejected post.");
+            }
+          } catch (err: any) {
+            addLog("Threads", "error", `Threads API publishing failed: ${err.message}`);
+          }
+        }
+      } else {
+        addLog("Threads", "info", "Launching official Threads Web Intent composer using your browser login session...");
+        const threadsUrl = `https://www.threads.com/intent/post?text=${encodeURIComponent(text)}`;
+        window.open(threadsUrl, "_blank");
+        addLog("Threads", "success", "Draft context transferred to standard Threads Web Composer.");
+      }
+    }
+
+    // 3. Publishing to X (Twitter) Web Fallback Composer
     if (publishToX) {
       addLog("X", "info", "Launching official tweet composer redirect (the safest, most reliable way to post to X without expensive API tiers)...");
       const twitterUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}`;
@@ -276,7 +346,7 @@ export default function App() {
                   Web & Extension
                 </span>
               </h1>
-              <p className="text-xs text-slate-500">Cross-Publish seamless posts directly to X & Bluesky</p>
+              <p className="text-xs text-slate-500">Cross-Publish seamless posts directly to X, Bluesky & Threads</p>
             </div>
           </div>
 
@@ -399,14 +469,14 @@ export default function App() {
                       />
                       <div>
                         <span className="text-xs font-bold text-slate-800 block">背景直連 API 模式</span>
-                        <span className="text-[10px] text-slate-500 block mt-0.5">需要在設定面板輸入您的 Bluesky Handle 與 App Passwords，系統將透過背景 API 靜默發布貼文。</span>
+                        <span className="text-[10px] text-slate-500 block mt-0.5">需要在設定面板輸入您的 Bluesky Handle 與 App Passwords（或 Threads Access Token），系統將透過背景 API 靜默發布貼文。</span>
                       </div>
                     </label>
                   </div>
                 </div>
 
                 {/* Character Counter Progress Indicators */}
-                <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fadeIn">
+                <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fadeIn">
                   {/* X Meter */}
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center text-xs">
@@ -448,6 +518,27 @@ export default function App() {
                       ></div>
                     </div>
                   </div>
+
+                  {/* Threads Meter */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-semibold text-slate-600 flex items-center space-x-1">
+                        <AtSign className="h-3.5 w-3.5 text-slate-900" />
+                        <span>Threads Length</span>
+                      </span>
+                      <span className={`font-mono font-medium ${threadsLength > THREADS_LIMIT ? "text-rose-600 font-bold" : "text-slate-600"}`}>
+                        {threadsLength} / {THREADS_LIMIT}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-200 ${
+                          threadsLength > THREADS_LIMIT ? "bg-rose-500" : threadsLength > THREADS_LIMIT - 30 ? "bg-amber-400" : "bg-emerald-500"
+                        }`}
+                        style={{ width: `${Math.min((threadsLength / THREADS_LIMIT) * 100, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -475,6 +566,17 @@ export default function App() {
                     <Cloud className="h-3.5 w-3.5 text-sky-500" />
                     <span>Include Bluesky</span>
                   </label>
+
+                  <label className="flex items-center space-x-2 cursor-pointer select-none text-xs font-semibold text-slate-700">
+                    <input 
+                      type="checkbox" 
+                      checked={publishToThreads} 
+                      onChange={(e) => setPublishToThreads(e.target.checked)}
+                      className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 h-4 w-4"
+                    />
+                    <AtSign className="h-3.5 w-3.5 text-slate-900" />
+                    <span>Include Threads</span>
+                  </label>
                 </div>
 
                 <div className="flex space-x-2">
@@ -482,9 +584,10 @@ export default function App() {
                     disabled={
                       isPublishing || 
                       !text.trim() || 
-                      (!publishToX && !publishToBsky) ||
+                      (!publishToX && !publishToBsky && !publishToThreads) ||
                       (publishToX && xLength > X_LIMIT) ||
-                      (publishToBsky && bskyLength > BSKY_LIMIT)
+                      (publishToBsky && bskyLength > BSKY_LIMIT) ||
+                      (publishToThreads && threadsLength > THREADS_LIMIT)
                     }
                     onClick={handlePublish}
                     className="flex-1 sm:flex-none justify-center bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-sm font-semibold py-2 px-5 rounded-lg flex items-center space-x-2 transition-colors cursor-pointer"
@@ -666,9 +769,43 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-600 flex items-center justify-between">
+                    <span>Threads Access Token</span>
+                    <a 
+                      href="https://developers.facebook.com/documentation/threads/get-started" 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="text-sky-600 hover:underline flex items-center"
+                    >
+                      How to get a token <ExternalLink className="h-2.5 w-2.5 ml-0.5" />
+                    </a>
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type={showThreadsToken ? "text" : "password"}
+                      placeholder="THAA..."
+                      value={threadsCreds.accessToken}
+                      onChange={(e) => setThreadsCreds({ accessToken: e.target.value.trim(), tokenRefreshedAt: Date.now() })}
+                      className="w-full text-xs pl-3 pr-10 py-2 border border-slate-300 rounded-lg shadow-xs focus:outline-none focus:ring-1 focus:ring-sky-600 block"
+                      id="input-threads-token"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowThreadsToken(!showThreadsToken)}
+                      className="absolute right-2 text-slate-400 hover:text-slate-600"
+                    >
+                      {showThreadsToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    在 Meta for Developers 建立 App 並啟用 Threads API（需 threads_basic、threads_content_publish 權限），產生 Long-lived Access Token 後貼上。Token 會在發文時自動續期。
+                  </p>
+                </div>
+
                 <div className="pt-2 flex justify-end">
                   <button
-                    onClick={() => saveCredentials(bskyCreds)}
+                    onClick={saveCredentials}
                     className="bg-slate-100 dark:hover:bg-slate-200 hover:bg-slate-200 text-slate-700 text-xs font-semibold py-2 px-4 rounded-lg transition-colors border border-slate-300 cursor-pointer"
                     id="btn-save-creds"
                   >

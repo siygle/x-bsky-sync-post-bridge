@@ -139,6 +139,94 @@ app.post("/api/publish/bluesky", async (req, res) => {
   }
 });
 
+// Threads Graph API (官方文件: https://developers.facebook.com/documentation/threads/posts)
+const THREADS_API = "https://graph.threads.com";
+const THREADS_LIMIT = 500;
+
+// Threads counts emoji by their UTF-8 byte length; everything else counts as one character.
+const encoder = new TextEncoder();
+const calculateThreadsLength = (str: string): number =>
+  [...str].reduce((sum, ch) => sum + (/\p{Extended_Pictographic}/u.test(ch) ? encoder.encode(ch).length : 1), 0);
+
+const threadsRequest = async (method: "GET" | "POST", endpoint: string, params: Record<string, string>) => {
+  const query = new URLSearchParams(params);
+  const response = method === "GET"
+    ? await fetch(`${THREADS_API}${endpoint}?${query}`)
+    : await fetch(`${THREADS_API}${endpoint}`, { method, body: query });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error) {
+    throw new Error(data.error?.message || `Threads API request failed (${response.status}).`);
+  }
+  return data;
+};
+
+// 2b. Threads Graph API posting proxy route
+app.post("/api/publish/threads", async (req, res) => {
+  try {
+    const { accessToken, content, renewToken } = req.body;
+
+    if (!accessToken) {
+      return res.status(400).json({ error: "Threads access token is required." });
+    }
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ error: "Post content is empty." });
+    }
+    if (calculateThreadsLength(content) > THREADS_LIMIT) {
+      return res.status(400).json({ error: `Content exceeds Threads' ${THREADS_LIMIT} character limit.` });
+    }
+
+    // A. Resolve the Threads user ID behind the token, then create a text media container
+    const { id: userId } = await threadsRequest("GET", "/v1.0/me", { fields: "id", access_token: accessToken });
+    const container = await threadsRequest("POST", `/v1.0/${userId}/threads`, {
+      media_type: "TEXT",
+      text: content,
+      access_token: accessToken,
+    });
+
+    // B. Wait until the container is ready (text posts are usually ready immediately)
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { status, error_message } = await threadsRequest("GET", `/v1.0/${container.id}`, {
+        fields: "status,error_message",
+        access_token: accessToken,
+      });
+      if (status === "FINISHED") break;
+      if (status === "ERROR" || status === "EXPIRED") {
+        throw new Error(error_message || `Threads media container ${status.toLowerCase()}.`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+
+    // C. Publish the container
+    const published = await threadsRequest("POST", `/v1.0/${userId}/threads_publish`, {
+      creation_id: container.id,
+      access_token: accessToken,
+    });
+
+    const { permalink } = await threadsRequest("GET", `/v1.0/${published.id}`, {
+      fields: "permalink",
+      access_token: accessToken,
+    }).catch(() => ({ permalink: undefined }));
+
+    // D. Long-lived tokens expire after 60 days unless refreshed, so renew when the client asks
+    let newAccessToken: string | undefined;
+    if (renewToken) {
+      const refreshed = await threadsRequest("GET", "/refresh_access_token", {
+        grant_type: "th_refresh_token",
+        access_token: accessToken,
+      }).catch((err) => {
+        console.error("Threads token refresh failed:", err);
+        return null;
+      });
+      newAccessToken = refreshed?.access_token;
+    }
+
+    res.json({ success: true, id: published.id, url: permalink, newAccessToken });
+  } catch (error: any) {
+    console.error("Threads posting failed:", error);
+    res.status(500).json({ error: error.message || "Failed to publish to Threads." });
+  }
+});
+
 // 3. Dynamic Chrome Extension ZIP Generator
 app.get("/api/download-extension", async (req, res) => {
   try {
@@ -169,9 +257,11 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     const manifest = {
       manifest_version: 3,
       name: "SyncPost Bridge — Multi-Platform Cross-Publisher",
-      version: "1.3.0",
-      description: "Quickly post logs or active tab links to X (Twitter) & Bluesky. Supports browser-session intent, background API posting, and right-click text selection sharing.",
+      version: "1.4.0",
+      description: "Quickly post logs or active tab links to X (Twitter), Bluesky & Threads. Supports browser-session intent, background API posting, and right-click text selection sharing.",
       permissions: ["storage", "activeTab", "contextMenus"],
+      // Lets the popup call the Threads Graph API directly in background API mode
+      host_permissions: ["https://graph.threads.com/*"],
       background: {
         service_worker: "background.js"
       },
@@ -435,7 +525,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 <body>
   <div class="container">
     <header>
-      <h1>X & Bluesky Cross-Publisher</h1>
+      <h1>X, Bluesky & Threads Cross-Publisher</h1>
       <span class="badge">V1.1</span>
     </header>
 
@@ -463,6 +553,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
           <div class="metric-title">Bluesky 長度</div>
           <div class="metric-value" id="count-bsky" style="color: #10b981;">0 / 300</div>
         </div>
+        <div class="metric-card">
+          <div class="metric-title">Threads 長度</div>
+          <div class="metric-value" id="count-threads" style="color: #10b981;">0 / 500</div>
+        </div>
       </div>
 
       <div class="mode-select-container">
@@ -489,6 +583,9 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         <label class="checkbox-row">
           <input type="checkbox" id="check-bsky" checked> 同步發布至 Bluesky
         </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="check-threads"> 同步發布至 Threads
+        </label>
 
         <button class="primary-btn" id="pub-btn" style="margin-top: 6px;">
           🚀 一鍵同步發布
@@ -510,6 +607,17 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         <div class="input-group">
           <label>App 密碼 (請到 Bluesky 設定 > App Passwords 生成)</label>
           <input type="password" id="bsky-pwd" placeholder="xxxx-xxxx-xxxx-xxxx">
+        </div>
+      </div>
+
+      <div style="border-bottom: 1px solid #cbd5e1; margin-bottom: 12px; padding-bottom: 8px;">
+        <h3 style="font-size:12px; margin:0 0 8px 0; color:#1e293b;">Threads 後台靜默 API 設定</h3>
+        <div class="status-msg info" style="display:block; margin:0 0 10px 0;">
+          到 Meta for Developers 建立 App 並啟用 Threads API（需 threads_basic、threads_content_publish 權限），產生 Long-lived Access Token 後貼上。Token 會在發文時自動續期；使用「網頁模式」則不需填寫。
+        </div>
+        <div class="input-group">
+          <label>Threads Access Token</label>
+          <input type="password" id="threads-token" placeholder="THAA...">
         </div>
       </div>
 
@@ -554,6 +662,7 @@ document.getElementById('tab-settings').addEventListener('click', () => {
 const editor = document.getElementById('editor');
 const countX = document.getElementById('count-x');
 const countBsky = document.getElementById('count-bsky');
+const countThreads = document.getElementById('count-threads');
 const pubBtn = document.getElementById('pub-btn');
 const statusBox = document.getElementById('status-box');
 const modeBadge = document.getElementById('mode-badge');
@@ -599,6 +708,13 @@ document.getElementById('share-tab-btn').addEventListener('click', () => {
 // Character limits
 const X_LIMIT = 280;
 const BSKY_LIMIT = 300;
+const THREADS_LIMIT = 500;
+
+// Threads 的 emoji 以 UTF-8 位元組數計算，其他字元算 1 個字
+function calculateThreadsLength(str) {
+  const encoder = new TextEncoder();
+  return [...str].reduce((sum, ch) => sum + (/\\p{Extended_Pictographic}/u.test(ch) ? encoder.encode(ch).length : 1), 0);
+}
 
 function calculateXLength(str) {
   const urlRegex = /(https?:\\/\\/[^\\s]+)/g;
@@ -632,15 +748,28 @@ function updateMetrics() {
     countBsky.style.color = '#10b981';
   }
 
+  // Threads metric colors
+  const threadsLen = calculateThreadsLength(text);
+  countThreads.textContent = threadsLen + ' / ' + THREADS_LIMIT;
+  if (threadsLen > THREADS_LIMIT) {
+    countThreads.style.color = '#ef4444';
+  } else if (threadsLen > THREADS_LIMIT - 20) {
+    countThreads.style.color = '#f59e0b';
+  } else {
+    countThreads.style.color = '#10b981';
+  }
+
   // Disable publish if over the limits of chosen destinations
   const checkX = document.getElementById('check-x').checked;
   const checkBsky = document.getElementById('check-bsky').checked;
+  const checkThreads = document.getElementById('check-threads').checked;
   
   const xOver = checkX && xLen > X_LIMIT;
   const bskyOver = checkBsky && len > BSKY_LIMIT;
-  const noneChecked = !checkX && !checkBsky;
+  const threadsOver = checkThreads && threadsLen > THREADS_LIMIT;
+  const noneChecked = !checkX && !checkBsky && !checkThreads;
 
-  pubBtn.disabled = xOver || bskyOver || noneChecked || len.trim === '';
+  pubBtn.disabled = xOver || bskyOver || threadsOver || noneChecked || len.trim === '';
 }
 
 editor.addEventListener('input', () => {
@@ -653,6 +782,10 @@ document.getElementById('check-x').addEventListener('change', () => {
 });
 document.getElementById('check-bsky').addEventListener('change', () => {
   chrome.storage.local.set({ checkBskyState: document.getElementById('check-bsky').checked });
+  updateMetrics();
+});
+document.getElementById('check-threads').addEventListener('change', () => {
+  chrome.storage.local.set({ checkThreadsState: document.getElementById('check-threads').checked });
   updateMetrics();
 });
 
@@ -669,15 +802,23 @@ function showStatus(text, type = 'info') {
 document.getElementById('save-btn').addEventListener('click', () => {
   const handle = document.getElementById('bsky-handle').value.trim();
   const pwd = document.getElementById('bsky-pwd').value.trim();
+  const threadsToken = document.getElementById('threads-token').value.trim();
 
-  chrome.storage.local.set({ bskyHandle: handle, bskyPassword: pwd }, () => {
-    showStatus('已儲存 Bluesky 背景 API 連線設定！', 'success');
-    updateSavedIndicator();
+  chrome.storage.local.get(['threadsToken'], (saved) => {
+    const updates = { bskyHandle: handle, bskyPassword: pwd, threadsToken: threadsToken };
+    // 換了新的 Token 才重設續期時間，避免剛貼上的 Token 立刻被續期
+    if (threadsToken !== saved.threadsToken) {
+      updates.threadsTokenRefreshedAt = Date.now();
+    }
+    chrome.storage.local.set(updates, () => {
+      showStatus('已儲存 Bluesky / Threads 背景 API 連線設定！', 'success');
+      updateSavedIndicator();
+    });
   });
 });
 
 function updateSavedIndicator() {
-  chrome.storage.local.get(['bskyHandle', 'bskyPassword', 'useApiMode', 'draftText', 'checkXState', 'checkBskyState'], (data) => {
+  chrome.storage.local.get(['bskyHandle', 'bskyPassword', 'threadsToken', 'useApiMode', 'draftText', 'checkXState', 'checkBskyState', 'checkThreadsState'], (data) => {
     const indicator = document.getElementById('saved-indicator');
     
     // Restore mode
@@ -695,9 +836,13 @@ function updateSavedIndicator() {
     if (data.checkBskyState !== undefined) {
       document.getElementById('check-bsky').checked = data.checkBskyState;
     }
+    if (data.checkThreadsState !== undefined) {
+      document.getElementById('check-threads').checked = data.checkThreadsState;
+    }
     if (data.draftText !== undefined) {
       editor.value = data.draftText;
     }
+    updateMetrics();
 
     if (data.bskyHandle) {
       document.getElementById('bsky-handle').value = data.bskyHandle;
@@ -705,8 +850,11 @@ function updateSavedIndicator() {
     if (data.bskyPassword) {
       document.getElementById('bsky-pwd').value = data.bskyPassword;
     }
+    if (data.threadsToken) {
+      document.getElementById('threads-token').value = data.threadsToken;
+    }
 
-    if (data.bskyHandle && data.bskyPassword) {
+    if ((data.bskyHandle && data.bskyPassword) || data.threadsToken) {
       indicator.textContent = '✔ API 密鑰設定已完成';
       indicator.style.color = '#10b981';
     } else {
@@ -720,11 +868,78 @@ function updateSavedIndicator() {
 updateSavedIndicator();
 updateMetrics();
 
+// Threads Graph API (官方文件: https://developers.facebook.com/documentation/threads/posts)
+const THREADS_API = 'https://graph.threads.com';
+// Long-lived Token 60 天到期，持續發文時每 7 天自動續期一次
+const THREADS_TOKEN_RENEW_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function threadsRequest(method, endpoint, params) {
+  const query = new URLSearchParams(params);
+  const res = method === 'GET'
+    ? await fetch(THREADS_API + endpoint + '?' + query)
+    : await fetch(THREADS_API + endpoint, { method: method, body: query });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) {
+    throw new Error((data.error && data.error.message) || 'Threads API 請求失敗 (' + res.status + ')');
+  }
+  return data;
+}
+
+async function publishToThreadsApi(text) {
+  const data = await chrome.storage.local.get(['threadsToken', 'threadsTokenRefreshedAt']);
+  const accessToken = data.threadsToken;
+  if (!accessToken) {
+    throw new Error('請到設定頁面填寫 Threads Access Token，或切換為免密碼網頁模式。');
+  }
+
+  // A. 查出 Token 對應的 Threads 帳號 ID，建立純文字貼文容器
+  const me = await threadsRequest('GET', '/v1.0/me', { fields: 'id', access_token: accessToken });
+  const container = await threadsRequest('POST', '/v1.0/' + me.id + '/threads', {
+    media_type: 'TEXT',
+    text: text,
+    access_token: accessToken
+  });
+
+  // B. 等容器處理完成（純文字通常立即完成）
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const info = await threadsRequest('GET', '/v1.0/' + container.id, {
+      fields: 'status,error_message',
+      access_token: accessToken
+    });
+    if (info.status === 'FINISHED') break;
+    if (info.status === 'ERROR' || info.status === 'EXPIRED') {
+      throw new Error(info.error_message || 'Threads 貼文容器處理失敗。');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  // C. 正式發布
+  await threadsRequest('POST', '/v1.0/' + me.id + '/threads_publish', {
+    creation_id: container.id,
+    access_token: accessToken
+  });
+
+  // D. 續期 Token；失敗不影響這次發文
+  if (Date.now() - (data.threadsTokenRefreshedAt || 0) > THREADS_TOKEN_RENEW_MS) {
+    try {
+      const refreshed = await threadsRequest('GET', '/refresh_access_token', {
+        grant_type: 'th_refresh_token',
+        access_token: accessToken
+      });
+      await chrome.storage.local.set({ threadsToken: refreshed.access_token, threadsTokenRefreshedAt: Date.now() });
+      document.getElementById('threads-token').value = refreshed.access_token;
+    } catch (err) {
+      console.warn('Threads token refresh failed:', err);
+    }
+  }
+}
+
 // Publish simultaneously handler
 pubBtn.addEventListener('click', async () => {
   const text = editor.value.trim();
   const publishToX = document.getElementById('check-x').checked;
   const publishToBsky = document.getElementById('check-bsky').checked;
+  const publishToThreads = document.getElementById('check-threads').checked;
   const isApiModeSelected = radioApi.checked;
 
   pubBtn.disabled = true;
@@ -794,50 +1009,48 @@ pubBtn.addEventListener('click', async () => {
     }
   }
 
-  // 2. X (TWITTER) INTENT REDIRECT (Universal for both sessions)
+  const done = [];
+  const failed = [];
+
+  if (publishToBsky) {
+    if (bskySuccess) {
+      done.push(isApiModeSelected ? '已於背景發布至 Bluesky' : '已開啟 Bluesky 發文頁面');
+    } else {
+      failed.push('Bluesky 背景發布失敗：' + bskyErr);
+    }
+  }
+
+  // 2. THREADS PUBLISHING
+  if (publishToThreads) {
+    if (isApiModeSelected) {
+      try {
+        await publishToThreadsApi(text);
+        done.push('已於背景發布至 Threads');
+      } catch (err) {
+        failed.push('Threads 背景發布失敗：' + err.message);
+      }
+    } else {
+      const threadsIntentUrl = "https://www.threads.com/intent/post?text=" + encodeURIComponent(text);
+      chrome.tabs.create({ url: threadsIntentUrl });
+      done.push('已開啟 Threads 發文頁面');
+    }
+  }
+
+  // 3. X (TWITTER) INTENT REDIRECT (Universal for both sessions)
   if (publishToX) {
     const twitterUrl = "https://x.com/intent/tweet?text=" + encodeURIComponent(text);
     chrome.tabs.create({ url: twitterUrl });
+    done.push('已開啟 X 發文頁面');
   }
 
-  // Present result status
-  if (publishToBsky && publishToX) {
-    if (isApiModeSelected) {
-      if (bskySuccess) {
-        showStatus('已於背景直接發布至 Bluesky！同時為您開啟了 X.com 的發文頁面。', 'success');
-        editor.value = '';
-        chrome.storage.local.set({ draftText: '' });
-        updateMetrics();
-      } else {
-        showStatus('X 頁面已開啟，但 Bluesky 背景發布失敗：' + bskyErr, 'error');
-      }
-    } else {
-      showStatus('已成功為您同時挑起 X 以及 Bluesky 官方發文頁面，完美共享您的登入 Cookie / Session！', 'success');
-      editor.value = '';
-      chrome.storage.local.set({ draftText: '' });
-      updateMetrics();
-    }
-  } else if (publishToBsky) {
-    if (isApiModeSelected) {
-      if (bskySuccess) {
-        showStatus('已順利在背景發佈至 Bluesky 帳號中！', 'success');
-        editor.value = '';
-        chrome.storage.local.set({ draftText: '' });
-        updateMetrics();
-      } else {
-        showStatus('Bluesky 背景發布出錯：' + bskyErr, 'error');
-      }
-    } else {
-      showStatus('已開啟 Bluesky 網頁發布分頁，直接使用您的瀏覽器登入 Session！', 'success');
-      editor.value = '';
-      chrome.storage.local.set({ draftText: '' });
-      updateMetrics();
-    }
-  } else if (publishToX) {
-    showStatus('已為您新開 X.com 發文視窗，內容已自動填妥！', 'success');
+  // Present result status; keep the draft if any destination failed so it can be retried
+  if (failed.length === 0) {
+    showStatus(done.join('、') + '！', 'success');
     editor.value = '';
     chrome.storage.local.set({ draftText: '' });
     updateMetrics();
+  } else {
+    showStatus(failed.concat(done).join('；'), 'error');
   }
 
   pubBtn.textContent = '🚀 一鍵同步發布';
