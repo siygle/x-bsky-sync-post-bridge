@@ -536,7 +536,48 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 </html>`;
 
     // Popup logic with ATP Bluesky direct implementation & stored credentials
-    const popupJs = `// Simple tab switcher
+    const popupJs = `// Chrome on Linux 的擴充功能 popup 收不到 fcitx5 / ibus 的組字輸入（注音、拼音完全沒反應），
+// 所以在 Linux 上改用獨立視窗開啟同一份 popup.html，輸入法就能和一般網頁一樣正常運作。
+const pageParams = new URLSearchParams(location.search);
+const isStandaloneWindow = pageParams.has('standalone');
+const sourceTabId = Number(pageParams.get('tabId')) || null;
+
+if (isStandaloneWindow) {
+  // 只保留最新開啟的那個編輯視窗，避免重複點擊圖示後堆出多個視窗
+  chrome.windows.getCurrent((currentWin) => {
+    chrome.storage.session.get('composeWindowId', ({ composeWindowId }) => {
+      if (composeWindowId && composeWindowId !== currentWin.id) {
+        chrome.windows.remove(composeWindowId, () => void chrome.runtime.lastError);
+      }
+      chrome.storage.session.set({ composeWindowId: currentWin.id });
+    });
+  });
+} else {
+  chrome.runtime.getPlatformInfo((info) => {
+    if (info.os !== 'linux') return;
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs && tabs[0] ? tabs[0].id : '';
+      chrome.windows.create({
+        url: chrome.runtime.getURL('popup.html?standalone=1&tabId=' + tabId),
+        type: 'popup',
+        width: 480,
+        height: 680
+      }, () => window.close());
+    });
+  });
+}
+
+// 取得要分享的網頁分頁：popup 直接拿目前分頁；獨立視窗則用開啟時記下的分頁
+function getSourceTab(callback) {
+  if (isStandaloneWindow) {
+    if (!sourceTabId) return callback(null);
+    chrome.tabs.get(sourceTabId, (tab) => callback(chrome.runtime.lastError ? null : tab));
+    return;
+  }
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => callback(tabs && tabs[0]));
+}
+
+// Simple tab switcher
 document.getElementById('tab-compose').addEventListener('click', () => {
   document.getElementById('tab-compose').classList.add('active');
   document.getElementById('tab-settings').classList.remove('active');
@@ -579,9 +620,8 @@ radioApi.addEventListener('change', () => {
 
 // Quick Share current browser active tab! (帶入目前分頁)
 document.getElementById('share-tab-btn').addEventListener('click', () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs && tabs[0]) {
-      const activeTab = tabs[0];
+  getSourceTab((activeTab) => {
+    if (activeTab) {
       const title = activeTab.title || '分享網頁';
       const url = activeTab.url || '';
       
