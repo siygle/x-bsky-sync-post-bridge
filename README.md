@@ -1,5 +1,5 @@
 # SyncPost Bridge — 跨平台同步發文神器 🚀
-`SyncPost Bridge` 是一個專為 **X (Twitter)** 與 **Bluesky** 打造的跨平台同步發文神器！
+`SyncPost Bridge` 是一個專為 **X (Twitter)**、**Bluesky** 與 **Threads** 打造的跨平台同步發文神器！
 它同時提供 **極簡網頁版儀表板** 與 **強大而便利的 Google Chrome 瀏覽器擴充功能 (Chrome Extension)**，幫助您在一瞬間將當前資訊、心得或網址分享到多個社群平台。
 
 ---
@@ -21,15 +21,30 @@
     *   **安全可信賴**：發佈時，系統會開啟兩邊官方的標準 Compose Intent Web 頁面，**直接沿用您瀏覽器現有的登入 Session (Cookie)**，完美兼顧安全，秒發草稿！
 *   **背景靜默 API 模式 (Direct Background API Mode)**
     *   透過在設定面板輸入您的 Bluesky 帳號與安全防禦生成的 **App Password** (請勿填入主密碼)，擴充功能會在背景直接連線 ATP (Authenticated Transfer Protocol) RPC 端點，完成秒速直接發文。
+    *   Threads 則使用官方 Threads API：在設定面板貼上 **Threads Access Token** 即可在背景直接發文（申請方式見下方「Threads API 設定」）。
 
 ### 3. 📊 即時字數驗證與連結優化
 *   **X (Twitter)**：支援 `24` 小時即時 Twitter 字數極限監控 (包含網址自動縮短為 $23$ 字元的精準算法)。
 *   **Bluesky**：支援 $300$ 字元即時更新計算。
+*   **Threads**：支援 $500$ 字元即時計算（依官方規則，emoji 以 UTF-8 位元組數計算）。Threads 預設不勾選，需要時再自行開啟。
 *   當超出字數上限時，發佈按鈕將自動防呆鎖定，避免發文失敗。
 
 ### 4. 🤖 內置 AI 生成發文改寫 (Gemini AI Companion)
 *   本地 Web App 同步提供 **Gemini AI 優化改寫小幫手**。
 *   能將原本生硬的連結標題與文字，一鍵升級為吸引人的社群行銷貼文 (可選：幽默風趣、科技極簡、專業分析等風格)。
+
+---
+
+## 🧵 Threads API 設定 (僅「背景靜默 API 模式」需要)
+Threads 沒有類似 Bluesky App Password 的機制，需要用自己的 Meta 開發者 App 產生 Access Token：
+
+1.  前往 [Meta for Developers](https://developers.facebook.com/apps/) 建立 App，使用情境選擇 **「存取 Threads API」**。
+2.  在 App 權限中加入 `threads_basic` 與 `threads_content_publish`。
+3.  在 **App 角色 > 角色** 將自己的 Threads 帳號加為 **Threads 測試人員**，並到 Threads 網頁版的「設定 > 帳號 > 網站權限 > 邀請」接受邀請。
+4.  使用 App 後台的 **User Token Generator** 產生 Access Token，再依[官方說明](https://developers.facebook.com/documentation/threads/get-started/long-lived-tokens)換成效期 60 天的 Long-lived Token。
+5.  把 Token 貼到網頁版或擴充功能的設定頁並儲存。之後只要持續發文，系統每 7 天會自動續期；若超過 60 天沒有使用導致過期，重新產生並貼上即可。
+
+> 未經 Meta App Review 的 App 只能發文到自己與測試人員的帳號，個人同步發文使用已足夠。使用「免帳密網頁模式」則完全不需要 Token，系統會開啟 Threads 官方發文頁面。
 
 ---
 
@@ -47,7 +62,7 @@
 
 ## 📂 專案檔案結構
 *   `README.md` (本文件) — 系統擴充特色、商店上架指引與操作指南。
-*   `server.ts` — 用於本機/雲端運行之 Express Web 伺服器，同時兼顧動態 ZIP 打包下載端點與 Bluesky ATP API Proxy 代發邏輯。
+*   `server.ts` — 用於本機/雲端運行之 Express Web 伺服器，同時兼顧動態 ZIP 打包下載端點與 Bluesky ATP / Threads API Proxy 代發邏輯。
 *   `src/App.tsx` — 具有高度科技動感、高對比、排版卓越細緻之 Web Dashboard，包含擴充代碼編輯器、日誌儀表、AI 改寫及直接下載按鈕。
 *   `src/extensionTemplates.ts` — 儲存了擴充套件所需 manifest、html、js 完美對其繁體中文、帶入目前網頁網址及雙軌 Session 發佈模式的原始碼範本。
 
@@ -68,6 +83,7 @@
    * **極簡安全權限**：本擴充套件僅申請最安全的兩個權限：
      - `storage`：僅用於在本機 Chrome Sandbox 沙盒儲存您自選的預設發佈管道（X/Bluesky）與發文草稿狀態。
      - `activeTab`：僅在您「主動點擊」帶入按鈕時，暫時安全讀取當前標籤的 Title 與 URL。
+     - `host_permissions: https://graph.threads.com/*`：僅用於「背景靜默 API 模式」下呼叫 Threads 官方 API 發文。
    * **秒速審核通過**：本套件**並未申請**會跳出警告視窗的廣義 `tabs` 讀取權限，亦**未申請**背景腳本攔截或注入（Content Scripts），這使它具有極高的資安安全係數，**極大縮短了 Google 官方的資安人工審閱流程，絕大多能於 12 - 48 小時內自动安全無痛過審並公開上架！**
 
 ---

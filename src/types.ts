@@ -3,17 +3,23 @@ export interface BlueskyCredentials {
   appPassword: string;
 }
 
+export interface ThreadsCredentials {
+  accessToken: string;
+  tokenRefreshedAt: number;
+}
+
 export interface PostDraft {
   text: string;
   publishToX: boolean;
   publishToBsky: boolean;
+  publishToThreads: boolean;
 }
 
 export interface LogEntry {
   id: string;
   timestamp: string;
   type: "success" | "error" | "info";
-  network: "X" | "Bluesky" | "AI" | "System";
+  network: "X" | "Bluesky" | "Threads" | "AI" | "System";
   message: string;
   link?: string;
 }
