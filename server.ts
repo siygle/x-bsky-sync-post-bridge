@@ -430,6 +430,80 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       font-size: 10px;
       color: #94a3b8;
     }
+
+    /* 獨立視窗（Linux）：填滿整個視窗，並依視窗寬度調整版面 */
+    html.standalone, html.standalone body {
+      height: 100%;
+    }
+    html.standalone body {
+      width: auto;
+    }
+    html.standalone .container {
+      box-sizing: border-box;
+      max-width: 960px;
+      min-height: 100%;
+      margin: 0 auto;
+      padding: clamp(12px, 3vw, 24px);
+      display: flex;
+      flex-direction: column;
+    }
+    html.standalone .pane.active {
+      flex: 1;
+    }
+    html.standalone #pane-compose.active {
+      display: flex;
+      flex-direction: column;
+    }
+    html.standalone #pane-settings {
+      max-width: 640px;
+    }
+    html.standalone textarea {
+      flex: 1;
+      min-height: 160px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    html.standalone .mode-select-title {
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    html.standalone .radio-group {
+      flex-wrap: wrap;
+    }
+
+    /* 寬視窗：左邊編輯區、右邊字數與發布設定 */
+    @media (min-width: 680px) {
+      html.standalone #pane-compose.active {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        grid-template-rows: auto auto 1fr;
+        gap: 12px 16px;
+      }
+      html.standalone textarea {
+        grid-row: 1 / -1;
+        height: auto;
+        min-height: 240px;
+      }
+      html.standalone .metrics,
+      html.standalone .mode-select-container {
+        margin: 0;
+      }
+      html.standalone .radio-group {
+        flex-direction: column;
+        gap: 6px;
+      }
+    }
+
+    /* 窄視窗：模式選項改成直向排列 */
+    @media (max-width: 380px) {
+      html.standalone .radio-group {
+        flex-direction: column;
+        gap: 6px;
+      }
+      html.standalone .tab {
+        padding: 6px 8px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -543,6 +617,8 @@ const isStandaloneWindow = pageParams.has('standalone');
 const sourceTabId = Number(pageParams.get('tabId')) || null;
 
 if (isStandaloneWindow) {
+  // 套用獨立視窗專用的響應式版面
+  document.documentElement.classList.add('standalone');
   // 只保留最新開啟的那個編輯視窗，避免重複點擊圖示後堆出多個視窗
   chrome.windows.getCurrent((currentWin) => {
     chrome.storage.session.get('composeWindowId', ({ composeWindowId }) => {
