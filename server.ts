@@ -430,6 +430,80 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       font-size: 10px;
       color: #94a3b8;
     }
+
+    /* 獨立視窗（Linux）：填滿整個視窗，並依視窗寬度調整版面 */
+    html.standalone, html.standalone body {
+      height: 100%;
+    }
+    html.standalone body {
+      width: auto;
+    }
+    html.standalone .container {
+      box-sizing: border-box;
+      max-width: 960px;
+      min-height: 100%;
+      margin: 0 auto;
+      padding: clamp(12px, 3vw, 24px);
+      display: flex;
+      flex-direction: column;
+    }
+    html.standalone .pane.active {
+      flex: 1;
+    }
+    html.standalone #pane-compose.active {
+      display: flex;
+      flex-direction: column;
+    }
+    html.standalone #pane-settings {
+      max-width: 640px;
+    }
+    html.standalone textarea {
+      flex: 1;
+      min-height: 160px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    html.standalone .mode-select-title {
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    html.standalone .radio-group {
+      flex-wrap: wrap;
+    }
+
+    /* 寬視窗：左邊編輯區、右邊字數與發布設定 */
+    @media (min-width: 680px) {
+      html.standalone #pane-compose.active {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        grid-template-rows: auto auto 1fr;
+        gap: 12px 16px;
+      }
+      html.standalone textarea {
+        grid-row: 1 / -1;
+        height: auto;
+        min-height: 240px;
+      }
+      html.standalone .metrics,
+      html.standalone .mode-select-container {
+        margin: 0;
+      }
+      html.standalone .radio-group {
+        flex-direction: column;
+        gap: 6px;
+      }
+    }
+
+    /* 窄視窗：模式選項改成直向排列 */
+    @media (max-width: 380px) {
+      html.standalone .radio-group {
+        flex-direction: column;
+        gap: 6px;
+      }
+      html.standalone .tab {
+        padding: 6px 8px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -536,7 +610,50 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 </html>`;
 
     // Popup logic with ATP Bluesky direct implementation & stored credentials
-    const popupJs = `// Simple tab switcher
+    const popupJs = `// Chrome on Linux 的擴充功能 popup 收不到 fcitx5 / ibus 的組字輸入（注音、拼音完全沒反應），
+// 所以在 Linux 上改用獨立視窗開啟同一份 popup.html，輸入法就能和一般網頁一樣正常運作。
+const pageParams = new URLSearchParams(location.search);
+const isStandaloneWindow = pageParams.has('standalone');
+const sourceTabId = Number(pageParams.get('tabId')) || null;
+
+if (isStandaloneWindow) {
+  // 套用獨立視窗專用的響應式版面
+  document.documentElement.classList.add('standalone');
+  // 只保留最新開啟的那個編輯視窗，避免重複點擊圖示後堆出多個視窗
+  chrome.windows.getCurrent((currentWin) => {
+    chrome.storage.session.get('composeWindowId', ({ composeWindowId }) => {
+      if (composeWindowId && composeWindowId !== currentWin.id) {
+        chrome.windows.remove(composeWindowId, () => void chrome.runtime.lastError);
+      }
+      chrome.storage.session.set({ composeWindowId: currentWin.id });
+    });
+  });
+} else {
+  chrome.runtime.getPlatformInfo((info) => {
+    if (info.os !== 'linux') return;
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs && tabs[0] ? tabs[0].id : '';
+      chrome.windows.create({
+        url: chrome.runtime.getURL('popup.html?standalone=1&tabId=' + tabId),
+        type: 'popup',
+        width: 480,
+        height: 680
+      }, () => window.close());
+    });
+  });
+}
+
+// 取得要分享的網頁分頁：popup 直接拿目前分頁；獨立視窗則用開啟時記下的分頁
+function getSourceTab(callback) {
+  if (isStandaloneWindow) {
+    if (!sourceTabId) return callback(null);
+    chrome.tabs.get(sourceTabId, (tab) => callback(chrome.runtime.lastError ? null : tab));
+    return;
+  }
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => callback(tabs && tabs[0]));
+}
+
+// Simple tab switcher
 document.getElementById('tab-compose').addEventListener('click', () => {
   document.getElementById('tab-compose').classList.add('active');
   document.getElementById('tab-settings').classList.remove('active');
@@ -579,9 +696,8 @@ radioApi.addEventListener('change', () => {
 
 // Quick Share current browser active tab! (帶入目前分頁)
 document.getElementById('share-tab-btn').addEventListener('click', () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs && tabs[0]) {
-      const activeTab = tabs[0];
+  getSourceTab((activeTab) => {
+    if (activeTab) {
       const title = activeTab.title || '分享網頁';
       const url = activeTab.url || '';
       
