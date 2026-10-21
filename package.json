@@ -9,6 +9,7 @@
     "start": "node dist/server.cjs",
     "ext:build": "tsx scripts/build-extension.ts",
     "ext:dev": "tsx scripts/build-extension.ts && web-ext run -s extension -t chromium",
+    "ext:zip": "npm run ext:build && rm -f extension.zip && cd extension && zip -qr ../extension.zip . -x README.md",
     "ext:deploy": "npm run ext:build && node --env-file-if-exists=.env node_modules/.bin/chrome-webstore-upload --source extension",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

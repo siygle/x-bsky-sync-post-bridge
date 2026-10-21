@@ -3,6 +3,7 @@ build/
 dist/
 extension/
 extension-build/
+extension.zip
 coverage/
 .DS_Store
 *.log

@@ -1,3 +1,5 @@
+import { extensionIconsBase64 } from "./extensionIcons";
+
 // Chrome extension source files, shared by the /api/download-extension ZIP endpoint
 // and `npm run ext:build` (which writes them to ./extension for "Load unpacked").
 export function buildExtensionFiles(): Record<string, string | Buffer> {
@@ -26,8 +28,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     const manifest = {
       manifest_version: 3,
       name: "SyncPost Bridge — Multi-Platform Cross-Publisher",
-      version: "1.4.0",
-      description: "Quickly post logs or active tab links to X (Twitter), Bluesky & Threads. Supports browser-session intent, background API posting, and right-click text selection sharing.",
+      version: "1.4.1",
+      description: "Post your thoughts or the current tab link to X, Bluesky & Threads at once, with right-click sharing of selected text.",
       permissions: ["storage", "activeTab", "contextMenus"],
       // Lets the popup call the Threads Graph API directly in background API mode
       host_permissions: ["https://graph.threads.com/*"],
@@ -943,16 +945,7 @@ pubBtn.addEventListener('click', async () => {
 });
 `;
 
-    // Pure standard logo PNG. We'll generate a canvas and write base64 buffer or we can offer a beautifully rendered canvas logo in ZIP!
-    // Rather than dealing with binary canvas buffer loading on standard node, JSZip handles simple binary array, text, or we can save an icon code inside too!
-    // Since images are required, we can generate a simple 1px png, or an SVG icon or even code as a plain text string representing an base64 png, or use canvas drawing in chrome popup.html!
-    // To be perfectly bulletproof, we will let popup.html draw its icon dynamically on the menu or use a text-based SVG inside popup.html! That is super robust and requires zero binary file dependencies!
-    // Wait, let's look at the manifest icon. Yes! In Manifest V3, we can omit custom default_icon entirely and just use default_title, or chrome will use the generic extension icon!
-    // Or we can draw on canvas in background or generate a real PNG from a simple transparent base64 string.
-    // Let's bundle a 1x1 base64 transparent PNG or small styled icon!
-    // Complete base64 buffer for a real, high-resolution circular social sync logo
-    const appLogoBase64 = "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";
-    const iconBuffer = Buffer.from(appLogoBase64, 'base64');
+    const icon = (size: keyof typeof extensionIconsBase64) => Buffer.from(extensionIconsBase64[size], "base64");
 
     // Save instructions how to load the Extension
     const readme = `# X & Bluesky Cross-Publisher Chrome Extension
@@ -979,10 +972,10 @@ pubBtn.addEventListener('click', async () => {
       "popup.html": popupHtml,
       "popup.js": popupJs,
       "background.js": backgroundJs,
-      "icon16.png": iconBuffer,
-      "icon32.png": iconBuffer,
-      "icon48.png": iconBuffer,
-      "icon128.png": iconBuffer,
+      "icon16.png": icon(16),
+      "icon32.png": icon(32),
+      "icon48.png": icon(48),
+      "icon128.png": icon(128),
       "README.md": readme,
     };
 }
